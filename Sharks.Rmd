@@ -1,0 +1,497 @@
+---
+title: "Time Series Shark Attacks"
+author: "Josh Balson"
+date: "7/28/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Sets
+
+<https://www.sharks.org/global-shark-attack-file>        
+Filtered for USA only       
+Filtered to include the time frame Jan 1972 - Dec 2020        
+
+```{r init, include=FALSE}
+rm(list = ls())
+library(dplyr)
+library(tswge)
+library(tidyr)
+library(forecast)
+library(tseries)
+library(xts)
+library(orcutt)
+library(nnfor)
+library(vars)
+library(plotrix)
+path = 'C:\\Users\\balso\\OneDrive\\Documents\\Summer2021\\TimeSeries\\Sharks\\'
+```
+
+```{r udfs, include=FALSE}
+source(paste(path,'udf_make_icecream.R', sep=''))
+source(paste(path,'udf_make_data.R', sep=''))
+source(paste(path,'udf_make_models.R', sep=''))
+source(paste(path,'udf_make_all.R', sep=''))
+source(paste(path,'udf_make_plots.R', sep=''))
+source(paste(path,'udf_get_all_ase.R', sep=''))
+```
+
+```{r get sharks}
+sharks <- read.csv("sharks.csv", header = TRUE)
+head(sharks)
+```
+
+
+```{r get ice cream}
+ice.cream <- udf_make_icecream('IceCreamIndex.csv')
+head(ice.cream)
+```
+
+## Data Preprocessing
+```{r}
+data <- udf_make_data(sharks, ice.cream)
+
+#ts1
+ts.sharks <- data[[1]]
+ts.sharks.train <- data[[2]]
+ts.sharks.test <- data[[3]]
+
+#ts2
+ts.ice.cream <- data[[4]]
+ts.ice.cream.train <- data[[5]]
+ts.ice.cream.test <- data[[6]]
+```
+
+
+## Plot data
+```{r plot1}
+plot(as.xts(ts.sharks), major.format='%Y-%m',main='Shark Attacks United States',ylim=c(0,25))
+```
+
+ACF and Spectral Density
+```{r plot2, results=FALSE}
+plotts.sample.wge(ts.sharks.train)
+```
+
+## Build Forecast Models
+```{r message=FALSE}
+models <- udf_make_models(ts.sharks.train, ts.sharks.test, ts.ice.cream, ts.ice.cream.train)
+```
+
+Seasonal Model    
+ARIMA(15,3) with s = 12  
+$$
+(1-0.3645 B+ 0.3245 B^{ 2 }+ 0.5476 B^{ 3 }-0.0081 B^{ 4 }-0.0304 B^{ 5 }+ 0.0216 B^{ 6 }...
+$$
+$$
+...-0.06 B^{ 7 }-0.0301 B^{ 8 }-0.0137 B^{ 9 }-0.0364 B^{ 10 }-0.0781 B^{ 11 }+ 0.4743 B^{ 12 }-0.318 B^{ 13 }+ 0.1924 B^{ 14 }+ 0.1346 B^{ 15 })X_t = ...
+$$
+$$
+...(1-0.2669B-0.2659238B^{ 2 } +0.7336743B^{ 3 })a_t
+$$
+
+$$
+\sigma^2 = 6.0746
+$$
+
+Plot Seasonal 24 Month Forecast
+```{r}
+plot(ts.sharks[541:588],main='Shark Attacks Seasonal Forecast - 24 Months'
+     ,ylim=c(0,25), ylab='Shark Attacks',type='o', xlab='Months')
+points(models[[3]][541:588],type='o',lty=1,lwd=3,col=2,cex=.6)
+```
+
+Get 24 Month ASE for Seasonal     
+```{r f_seas24 ASE}
+ASE_seas <- models[[2]]
+ASE_seas
+```
+
+Get 12 Month ASE for Seasonal     
+```{r f_seas12 ASE}
+ASE_seas12 <- models[[4]]
+ASE_seas12
+```
+
+Stationary Model
+ARMA(3,3)
+$$
+(1-2.7255B+2.7211B^{ 2 }-0.9942B^{ 3 })(X_t - 2.828)=(1-2.6349307B+2.5456529B^{ 2 }-0.8923811B^{ 3 })a_t
+$$
+
+Plot Stationary 24 Month Forecast
+```{r}
+plot(ts.sharks[541:588],main='Shark Attacks Stationary Forecast - 24 Months'
+     ,ylim=c(0,25), ylab='Shark Attacks',type='o', xlab='Months')
+points(models[[7]][541:588],type='o',lty=1,lwd=3,col=2,cex=.6)
+```
+
+Get 24 Month ASE for Stationary     
+```{r f_stat24 ASE}
+ASE_stat <- models[[6]]
+ASE_stat
+```
+
+Get 12 Month ASE for Stationary     
+```{r f_stat12 ASE}
+ASE_stat12 <- models[[8]]
+ASE_stat12
+```
+
+Signal Plus Noise
+```{r}
+# test signal significance
+summary(models[[9]])
+```
+
+```{r}
+# cochrane-orcutt test
+summary(models[[10]])
+```
+
+Signal Plus Noise Model
+Linear with ARMA(7,4)
+$$
+X_t = s_t + Z_t ,where
+$$
+$$
+s_t = 0.0093272*t+0.1930892, and 
+$$
+
+$$
+Z_t = (1-0.2826B^{1}-0.6936B^{2}-0.1279B^{3}+1.0027B^{4}-0.073B^{5}+0.0328B^{6}...     
+$$
+
+$$
+...-0.0748B^{7})(X_t-2.828014)-(1-0.139B^{1}-0.7524B^{2}-0.1588B^{3}+0.9437B^{4})a_t     
+$$
+
+```{r}
+plot(ts.sharks[541:588],main='Shark Attacks SPN Forecast - 24 Months'
+     ,ylim=c(0,25), ylab='Shark Attacks',type='o', xlab='Months')
+points(models[[14]][541:588],type='o',lty=1,lwd=3,col=2,cex=.6)
+points(models[[12]][541:588],type='l',lty=3,lwd=2,col=4,cex=.6)
+```
+
+Get 24 Month ASE for SPN     
+```{r f_spn24 ASE}
+ASE_spn <- models[[13]]
+ASE_spn
+```
+
+Get 12 Month ASE for SPN     
+```{r f_spn12 ASE}
+ASE_spn12 <- models[[15]]
+ASE_spn12
+```
+
+## Bivariate Models
+VAR   
+MLP     
+Neural Network    
+
+View New Data - Ice Cream Production Index    
+<https://fred.stlouisfed.org/series/IPN31152N>    
+
+```{r ice cream plot1}
+plot(as.xts(ts.ice.cream), major.format='%Y-%m',main='Ice Cream Production Index United States')
+```
+
+Look at ACF and Spectral Density for Ice Cream Production
+```{r, results=FALSE}
+plotts.sample.wge(ts.ice.cream.train)
+```
+
+View Both Data Sets
+```{r}
+par(mfrow=c(2,1))
+plot(as.xts(ts.sharks), main='Shark Attacks, U.S')
+plot(as.xts(ts.ice.cream), main='Ice Cream Production Index, U.S')
+```
+
+Zoom-in Past Seven Years - Log Transforms
+```{r}
+par(mfrow=c(2,1))
+plot(as.xts(log1p(ts.sharks))[503:588], main='Log Shark Attacks, U.S')
+plot(as.xts(log1p(ts.ice.cream))[503:588], main='Log Ice Cream Production Index, U.S')
+```
+
+VAR model with Ice Cream Production
+```{r}
+plot(ts.sharks[541:588],main='Shark Attacks VAR Forecast - 24 Months'
+     ,ylim=c(0,25), ylab='Shark Attacks',type='o', xlab='Months')
+points(models[[18]][541:588],type='o',lty=1,lwd=3,col=2,cex=.6)
+```
+
+```{r}
+fanchart(models[[16]])
+```
+
+Get 24 Month ASE for VAR     
+```{r f_var24 ASE}
+ASE_VAR <- models[[17]]
+ASE_VAR
+```
+
+Get 12 Month ASE for SPN     
+```{r f_var12 ASE}
+ASE_VAR12 <- models[[19]]
+ASE_VAR12
+```
+
+MLP model with Ice Cream Production
+```{r}
+models[[20]]
+plot(models[[20]])
+```
+
+```{r}
+plot(ts.sharks[541:588],main='Shark Attacks MLP Forecast - 24 Months'
+     ,ylim=c(0,25), ylab='Shark Attacks',type='o', xlab='Months')
+points(models[[22]][541:588],type='o',lty=1,lwd=3,col=2,cex=.6)
+```
+
+Get 24 Month ASE for MLP     
+```{r f_mlp24 ASE}
+ASE_MLP <- models[[21]]
+ASE_MLP
+```
+
+Get 12 Month ASE for MLP     
+```{r f_mlp12 ASE}
+ASE_MLP12 <- models[[23]]
+ASE_MLP12
+```
+
+```{r}
+plot(ts.sharks,main='Shark Attacks MLP Forecast - 24 Months'
+     ,ylim=c(0,25), ylab='Shark Attacks',type='o', xlab='Months')
+points(models[[22]],type='o',lty=1,lwd=3,col=2,cex=.6)
+```
+
+## Generate Forecasts Using Different Time Ranges for Training
+
+(note: plots from artrans.wge could not be suppressed using 'plottr = F' when called by the user defined functions)
+```{r message=FALSE}
+forecast_years <- list(5,10,20,30,40,47)
+# forecast_years <- list(5,10)
+ln <- F
+modelsAll <- list()
+
+for (f in forecast_years){
+  
+  data <- udf_make_data(sharks, ice.cream, f, 2, ln = ln)
+  
+  m <- udf_make_models(data[[2]], data[[3]], data[[4]], data[[5]], ln = ln)
+  
+  tmp <- m
+  
+  modelsAll <- append(modelsAll,list(tmp))
+}
+```
+
+## Generate Log Forecasts Using Different Time Ranges for Training
+
+(note: plots from artrans.wge could not be suppressed using 'plottr = F' when called by the user defined functions)
+```{r message=FALSE}
+ln <- T
+modelsAllLog <- list()
+
+for (f in forecast_years){
+  
+  data <- udf_make_data(sharks, ice.cream, f, 2, ln = ln)
+  
+  m <- udf_make_models(data[[2]], data[[3]], data[[4]], data[[5]], ln = ln)
+  
+  tmp <- m
+  
+  modelsAllLog <- append(modelsAllLog,list(tmp))
+}
+```
+
+## Compile ASEs for all Models
+
+ASEs in ascending order (12 month)
+```{r, echo=FALSE}
+all_ase <- udf_get_all_ase()
+print(all_ase[order(all_ase$ASE12),])
+# write.csv(all_ase,paste(path,'ts_model_ase.csv', sep=''), row.names=F)
+```
+
+
+Look at Top Six Models Using 12 Month ASE
+```{r}
+par(mfrow=c(2,3))
+udf_make_plots(sharks, modelsAll[[5]][[22]], yrs_train = 40, title = '1.) MLP 40 Years')
+udf_make_plots(sharks, modelsAll[[6]][[22]], yrs_train = 47, title = '2.) MLP 47 Years')
+udf_make_plots(sharks, modelsAll[[4]][[22]], yrs_train = 30, title = '3.) MLP 30 Years')
+udf_make_plots(sharks, modelsAllLog[[3]][[22]], yrs_train = 20, title = '4.) Log MLP 20 Years')
+udf_make_plots(sharks, modelsAll[[5]][[18]], yrs_train = 40, title = '5.) VAR 40 Years')
+udf_make_plots(sharks, modelsAll[[2]][[14]], yrs_train = 10, title = '6.) SPN 10 Years')
+```
+
+Look at All Seasonal Models by 12 Month ASE
+```{r}
+par(mfrow=c(2,3))
+udf_make_plots(sharks, modelsAll[[4]][[3]], yrs_train = 30, title = '1.) Seasonal 30 Years')
+udf_make_plots(sharks, modelsAll[[5]][[3]], yrs_train = 40, title = '2.) Seasonal 40 Years')
+udf_make_plots(sharks, modelsAll[[6]][[3]], yrs_train = 47, title = '3.) Seasonal 47 Years')
+udf_make_plots(sharks, modelsAll[[2]][[3]], yrs_train = 10, title = '4.) Seasonal 10 Years')
+udf_make_plots(sharks, modelsAll[[1]][[3]], yrs_train = 5, title = '5.) Seasonal 5 Years')
+udf_make_plots(sharks, modelsAll[[3]][[3]], yrs_train = 20, title = '6.) Seasonal 20 Years')
+```
+
+Look at All Seasonal Log Models by 12 Month ASE
+```{r}
+par(mfrow=c(2,3))
+udf_make_plots(sharks, modelsAllLog[[4]][[3]], yrs_train = 30, title = '1.) Log Seasonal 30 Years')
+udf_make_plots(sharks, modelsAllLog[[5]][[3]], yrs_train = 40, title = '2.) Log Seasonal 40 Years')
+udf_make_plots(sharks, modelsAllLog[[6]][[3]], yrs_train = 47, title = '3.) Log Seasonal 47 Years')
+udf_make_plots(sharks, modelsAllLog[[2]][[3]], yrs_train = 10, title = '4.) Log Seasonal 10 Years')
+udf_make_plots(sharks, modelsAllLog[[1]][[3]], yrs_train = 5, title = '5.) Log Seasonal 5 Years')
+udf_make_plots(sharks, modelsAllLog[[3]][[3]], yrs_train = 20, title = '6.) Log Seasonal 20 Years')
+```
+
+Look at Top Six Stationary Models by 12 Month ASE
+```{r}
+par(mfrow=c(2,3))
+udf_make_plots(sharks, modelsAll[[5]][[7]], yrs_train = 40, title = '1.) Stationary 40 Years')
+udf_make_plots(sharks, modelsAll[[4]][[7]], yrs_train = 30, title = '2.) Stationary 30 Years')
+udf_make_plots(sharks, modelsAll[[6]][[7]], yrs_train = 47, title = '3.) Stationary 47 Years')
+udf_make_plots(sharks, modelsAll[[2]][[7]], yrs_train = 10, title = '4.) Stationary 10 Years')
+udf_make_plots(sharks, modelsAllLog[[3]][[7]], yrs_train = 20, title = '5.) Log Stationary 20 Years')
+udf_make_plots(sharks, modelsAll[[1]][[7]], yrs_train = 5, title = '6.) Stationary 5 Years')
+```
+## Ensemble Model
+
+Look at one ensemble model
+Use lower amplitude stationary forecasts to ensemble with Log MLP forecast
+```{r}
+fc_mlpLog20yrs <- modelsAllLog[[3]][[22]][241:264]
+fc_stat10yrs <- modelsAll[[2]][[7]][121:144]
+
+ensemble <- (fc_mlpLog20yrs + (.5 * fc_stat10yrs)) / 2 # wtd avg. stationary 1/2 the weight 
+
+t <- 1:length(ensemble)
+
+plot(t,fc_mlpLog20yrs,main='Shark Attacks Ensemble Forecast - MLP and Stationary'
+     ,ylim=c(0,25), ylab='Shark Attacks',type='l',lty=2, xlab='Months', col=4,lwd=2)
+points(t,ensemble,type='o',lty=1,lwd=3,col=2,cex=.6)
+points(t,0.5*fc_stat10yrs,type='l',lty=2, col=6,lwd=2)
+legend(2,25, legend=c('LogMLP','Ensemble','Stationary'), col=c(4,2,6), lty=2:1)
+```
+
+## Final Model Forecast - Piecewise
+
+Ensemble for months 1 - 12    
+Log MLP 20 Years for months 13 - 24   
+
+where Ensemble is the weighted average of Log MLP 20 year and Stationary 10 year
+
+$$
+forecast_p = modelA + modelB    
+$$
+$$
+where
+$$
+
+$$
+modelA= MLPLog20yrs(1:12)+(1/2)Stationary10yrs(1:12)
+$$
+$$
+and
+$$
+
+$$
+modelB= MLPLog20yrs(13:24)
+$$
+Plot Final Forecast
+```{r}
+piecewise <- c(ensemble[1:12],fc_mlpLog20yrs[13:24])
+# 24 month
+
+# expand time for plotting
+piecewise <- c(rep(NA,288),piecewise)
+piecewise <- piecewise[(length(piecewise) - 108 + 1): length(piecewise)]
+
+# get actual data, line up for plotting
+ts.sharks.20yr <- ts.sharks[(length(ts.sharks) - 84 + 1): length(ts.sharks)]
+ts.sharks.20yr <- c(ts.sharks.20yr,rep(NA,24))
+
+# plot final model with CIs
+t <- 1:length(ts.sharks.20yr)
+
+# get CIs
+CU <- piecewise + 1.96 * std.error(piecewise)
+CU <- c(CU[1:83],0,CU[85:108])
+CL <- piecewise - 1.96 * std.error(piecewise)
+CL[CL<0] <- 0
+CL <- c(CL[1:83],0,CL[85:108])
+
+plot(t,ts.sharks.20yr,main='Shark Attacks Final 24 Month MLP Forecast'
+     ,ylim=c(0,25), ylab='Shark Attacks',type='o', xlab='Months')
+points(t,CL,type='l',lty=2)
+points(t,piecewise,type='o',lty=1,lwd=3,col=2,cex=.6)
+points(t,CU,type='l',lty=2)
+legend(2,25, legend=c('Upper Limit','Forecast','Lower Limit'), col=c(1,2,1), lty=2:1)
+```
+Total Shark Attacks Projected in the U.S - 2021
+```{r}
+f_2021 <- round(ts(piecewise[!is.na(piecewise)][1:12], frequency = 12, start = 2021),0)
+print(f_2021)
+print(paste('2021 Total Shark Attacks Projected -',sum(f_2021), sep=' '))
+```
+
+Total Shark Attacks Projected in the U.S - 2022
+```{r}
+f_2022 <- round(ts(piecewise[!is.na(piecewise)][13:24], frequency = 12, start = 2022),0)
+print(f_2022)
+print(paste('2022 Total Shark Attacks Projected -',sum(f_2022), sep=' '))
+```
+Bring Prior Three Years of Actual Shark Attacks for Forecast Perspective
+```{r}
+act_2020 <- sum(ts.sharks.20yr[!is.na(ts.sharks.20yr)][73:84])
+act_2019 <- sum(ts.sharks.20yr[!is.na(ts.sharks.20yr)][61:72])
+act_2018 <- sum(ts.sharks.20yr[!is.na(ts.sharks.20yr)][49:60])
+
+actualPast3 <- ts(c(act_2018,act_2019,act_2020),frequency=1,start=2018)
+proj2 <- ts(c(sum(f_2021),sum(f_2022)),frequency=1,start=2021)
+
+print(actualPast3)
+print(proj2)
+```
+
+Upper Limits - Total Shark Attacks Projected in the U.S - 2021
+```{r}
+f_2021 <- round(ts(CU[!is.na(CU)][1:12], frequency = 12, start = 2021),0)
+print(f_2021)
+print(paste('2021 Total Shark Attacks Projected -',sum(f_2021), sep=' '))
+```
+Lower Limits - Total Shark Attacks Projected in the U.S - 2021
+```{r}
+f_2021 <- round(ts(CL[!is.na(CL)][1:12], frequency = 12, start = 2021),0)
+print(f_2021)
+print(paste('2021 Total Shark Attacks Projected -',sum(f_2021), sep=' '))
+```
+
+Upper Limits - Total Shark Attacks Projected in the U.S - 2022
+```{r}
+f_2022 <- round(ts(CU[!is.na(CU)][13:24], frequency = 12, start = 2022),0)
+print(f_2022)
+print(paste('2022 Total Shark Attacks Projected -',sum(f_2022), sep=' '))
+```
+
+Lower Limits - Total Shark Attacks Projected in the U.S - 2022
+```{r}
+f_2022 <- round(ts(CL[!is.na(CL)][13:24], frequency = 12, start = 2022),0)
+print(f_2022)
+print(paste('2022 Total Shark Attacks Projected -',sum(f_2022), sep=' '))
+```
+
+
+
+
+
